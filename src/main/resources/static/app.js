@@ -187,6 +187,8 @@ async function loadCompanies() {
   }
 }
 
+
+
 function renderRow(company) {
   const tr = document.createElement("tr");
 
@@ -196,7 +198,7 @@ function renderRow(company) {
     company.municipality || company.address || "—",
     company.legalForm || "—",
     formatDate(company.established),
-    company.employeeCategory || "—"
+    formatEmployeeCategory(company.employeeCategory)
   ];
 
   values.forEach((value, index) => {
@@ -210,8 +212,54 @@ function renderRow(company) {
     tr.append(td);
   });
 
+  if (company.ico) {
+    tr.classList.add("clickable-row");
+    tr.title = "Otevřít záznam společnosti na Justici";
+
+    tr.addEventListener("click", () => {
+      const justiceUrl =
+        `https://or.justice.cz/ias/ui/rejstrik-$firma?ico=${encodeURIComponent(company.ico)}`;
+
+      window.open(justiceUrl, "_blank", "noopener,noreferrer");
+    });
+  }
+
   results.append(tr);
 }
+
+function formatEmployeeCategory(code) {
+  const categories = {
+    "000": "Neuvedeno",
+    "110": "Bez zaměstnanců",
+    "120": "1–5",
+    "130": "6–9",
+    "210": "10–19",
+    "220": "20–24",
+    "230": "25–49",
+    "240": "50–99",
+    "310": "100–199",
+    "320": "200–249",
+    "330": "250–499",
+    "340": "500–999",
+    "410": "1 000–1 499",
+    "420": "1 500–1 999",
+    "430": "2 000–2 499",
+    "440": "2 500–2 999",
+    "450": "3 000–3 999",
+    "460": "4 000–4 999",
+    "470": "5 000–9 999",
+    "510": "10 000 a více"
+  };
+
+  if (!code) return "—";
+
+  const normalizedCode = String(code).padStart(3, "0");
+
+  return categories[normalizedCode]
+    ? `${categories[normalizedCode]} zaměstnanců`
+    : "Neznámá kategorie";
+}
+
 
 function formatDate(value) {
   if (!value) return "—";

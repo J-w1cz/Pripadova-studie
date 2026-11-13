@@ -353,4 +353,46 @@ footer a:hover {
   footer {
     flex-direction: column;
   }
+  
 }
+
+
+/* Klikatelné řádky společností */
+#results tr.clickable-row {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+/* Výrazné zvýraznění celého řádku */
+#results tr.clickable-row:hover td {
+    background-color: #e1eee8;
+}
+
+/* Zelený indikátor na levé straně */
+#results tr.clickable-row:hover td:first-child {
+    box-shadow: inset 5px 0 0 #176b4d;
+}
+
+/* Zvýraznění názvu společnosti */
+#results tr.clickable-row:hover .company-name {
+    color: #176b4d;
+    text-decoration: underline;
+}
+
+/* Šipka indikující otevření externí stránky */
+#results tr.clickable-row .company-name::after {
+    content: " ↗";
+    color: #176b4d;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+#results tr.clickable-row:hover .company-name::after {
+    opacity: 1;
+}
+
+/* Efekt při kliknutí */
+#results tr.clickable-row:active td {
+    background-color: #c9e2d5;
+}
+
