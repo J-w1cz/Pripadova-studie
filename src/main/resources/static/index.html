@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="cs">
 <head>
@@ -8,18 +9,37 @@
 </head>
 <body>
   <main class="shell">
+
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">P</span><div><strong>Případová studie</strong><small>Registr ekonomických subjektů</small></div></div>
-      <span class="source-pill"><span class="dot"></span> Datový zdroj ČSÚ</span>
+      <div class="brand">
+        <span class="brand-mark">P</span>
+        <div>
+          <strong>Případová studie</strong>
+          <small>Registr ekonomických subjektů</small>
+        </div>
+      </div>
+
+      <span class="source-pill">
+        <span class="dot"></span>
+        Datový zdroj ČSÚ
+      </span>
     </header>
 
     <section class="toolbar">
       <form id="search-form">
+
         <div class="search-controls">
+
           <div class="search-field">
-            <label for="query">Vyhledat firmu</label>
-            <input id="query" name="query" placeholder="Název firmy nebo IČO" autocomplete="off">
+            <label for="query" id="query-label">Filtrovat podle obce</label>
+            <input
+              id="query"
+              name="query"
+              placeholder="Zadejte název obce"
+              autocomplete="off"
+            >
           </div>
+
           <div class="mode-field">
             <label for="search-mode">Zdroj vyhledávání</label>
             <select id="search-mode">
@@ -27,34 +47,92 @@
               <option value="ares">ARES · online vyhledávání</option>
             </select>
           </div>
-          <button type="submit" id="search-button">Vyhledat</button>
+
+          <button type="submit" id="search-button">
+            Vyhledat
+          </button>
+
         </div>
-        <label class="active-filter"><input type="checkbox" id="active-only" checked> Pouze aktivní subjekty</label>
+
+        <label class="active-filter" id="active-filter">
+          <input type="checkbox" id="active-only" checked>
+          Pouze aktivní subjekty
+        </label>
+
       </form>
     </section>
 
     <section class="results-section">
+
       <div class="section-head">
-        <div><h1>Ekonomické subjekty</h1><p id="result-caption">Načítám data z registru ČSÚ…</p></div>
+        <div>
+          <h1>Ekonomické subjekty</h1>
+          <p id="result-caption">
+            Načítám data z registru ČSÚ…
+          </p>
+        </div>
+
         <div class="count" id="count">—</div>
       </div>
+
       <div id="status" class="status" role="status"></div>
+
       <div class="table-wrap">
+
         <table>
-          <thead><tr><th>Firma / název</th><th>IČO</th><th>Sídlo</th><th>Právní forma</th><th>Datum vzniku</th><th>Počet pracovníků</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Firma / název</th>
+              <th>IČO</th>
+              <th>Sídlo</th>
+              <th>Právní forma</th>
+              <th>Datum vzniku</th>
+              <th>Počet pracovníků</th>
+            </tr>
+          </thead>
+
           <tbody id="results"></tbody>
         </table>
-        <div id="empty" class="empty" hidden>Žádné záznamy odpovídající zadaným kritériím.</div>
+
+        <div id="empty" class="empty" hidden>
+          Žádné záznamy odpovídající zadaným kritériím.
+        </div>
+
       </div>
+
       <div class="pagination">
-        <button id="prev-page" class="page-btn" disabled>← Předchozí</button>
+        <button id="prev-page" class="page-btn" disabled>
+          ← Předchozí
+        </button>
+
         <span id="page-label">Stránka 1</span>
-        <button id="next-page" class="page-btn" disabled>Další →</button>
+
+        <button id="next-page" class="page-btn" disabled>
+          Další →
+        </button>
       </div>
+
     </section>
 
-    <footer><span>Zdroj dat: <a href="https://csu.gov.cz/registr-ekonomickych-subjektu-otevrena-data-dokumentace" target="_blank" rel="noreferrer">ČSÚ · RES otevřená data</a></span><span>ARES je využíván pro online vyhledávání subjektů.</span></footer>
+    <footer>
+      <span>
+        Zdroj dat:
+        <a
+          href="https://csu.gov.cz/registr-ekonomickych-subjektu-otevrena-data-dokumentace"
+          target="_blank"
+          rel="noreferrer"
+        >
+          ČSÚ · RES otevřená data
+        </a>
+      </span>
+
+      <span>
+        ARES je využíván pro online vyhledávání subjektů.
+      </span>
+    </footer>
+
   </main>
+
   <script src="/app.js"></script>
 </body>
 </html>

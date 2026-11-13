@@ -1,3 +1,4 @@
+
 package com.koala42.finder.service;
 
 import org.apache.commons.csv.CSVFormat;
@@ -23,90 +24,251 @@ import java.util.List;
 
 @Component
 public class ResDataImporter implements ApplicationRunner {
-    private static final Logger log = LoggerFactory.getLogger(ResDataImporter.class);
-    private static final String CSV_URL = "https://opendata.csu.gov.cz/soubory/od/od_org03/res_data.csv";
+
+    private static final Logger log =
+            LoggerFactory.getLogger(ResDataImporter.class);
+
+    private static final String CSV_URL =
+            "https://opendata.csu.gov.cz/soubory/od/od_org03/res_data.csv";
+
+    private static final int BATCH_SIZE = 2000;
+
     private final JdbcTemplate jdbc;
 
-    public ResDataImporter(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public ResDataImporter(
+        JdbcTemplate jdbc
+    ) {
+    this.jdbc = jdbc;
+    }
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
-        jdbc.execute("""
-            CREATE TABLE IF NOT EXISTS companies (
-              ico VARCHAR(8) PRIMARY KEY, name VARCHAR(1000), municipality VARCHAR(300),
-              address VARCHAR(1000), legal_form VARCHAR(30), established VARCHAR(20),
-              terminated VARCHAR(20), employee_category VARCHAR(30), nace VARCHAR(30),
-              data_valid_as_of VARCHAR(20)
-            )
-            """);
-        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name)");
-        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM companies", Long.class);
-        if (count != null && count > 0) {
+
+        createTables();
+
+        Boolean completed = jdbc.queryForObject(
+                "SELECT COUNT(*) > 0 FROM app_metadata "
+                        + "WHERE metadata_key = 'res_import_complete'",
+                Boolean.class
+        );
+
+        if (Boolean.TRUE.equals(completed)) {
+            Long count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM companies",
+                    Long.class
+            );
+
             log.info("RES data already loaded: {} records.", count);
+            createIndexes();
+
             return;
         }
 
+        // Odstranění případných dat z přerušeného importu.
+        jdbc.update("DELETE FROM companies");
+
         Path dataDir = Path.of("data");
         Files.createDirectories(dataDir);
+
         Path csvPath = dataDir.resolve("res_data.csv");
+
         if (!Files.exists(csvPath) || Files.size(csvPath) == 0) {
-            log.info("Downloading current CSV snapshot from ČSÚ RES...");
+            log.info("Downloading current CSV snapshot from ČSÚ...");
+
             Path tempCsv = dataDir.resolve("res_data.csv.download");
+
             try (var in = URI.create(CSV_URL).toURL().openStream()) {
-                Files.copy(in, tempCsv, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(
+                        in,
+                        tempCsv,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                );
             }
-            Files.move(tempCsv, csvPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+            Files.move(
+                    tempCsv,
+                    csvPath,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            );
         }
 
-        log.info("Importing RES CSV into local H2 database. This first run may take a while.");
-        long imported = 0;
-        String sql = "INSERT INTO companies (ico,name,municipality,address,legal_form,established,terminated,employee_category,nace,data_valid_as_of) VALUES (?,?,?,?,?,?,?,?,?,?)";
-        try {
-            try (Reader reader = new BufferedReader(new InputStreamReader(Files.newInputStream(csvPath), StandardCharsets.UTF_8));
-                 CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).get().parse(reader)) {
-                List<Object[]> batch = new ArrayList<>(500);
-                for (CSVRecord record : parser) {
-                    batch.add(new Object[]{
-                        val(record, "ICO"), val(record, "FIRMA"), val(record, "OBEC_TEXT"),
-                        buildAddress(record), first(val(record, "ROSFORMA"), val(record, "FORMA")),
-                        val(record, "DDATVZN"), val(record, "DDATZAN"), val(record, "KATPO"),
-                        first(val(record, "NACE2025"), val(record, "NACE")), val(record, "DATPLAT")
-                    });
-                    if (batch.size() == 500) {
-                        insertBatch(sql, batch); imported += batch.size(); batch.clear();
-                    }
-                }
-                if (!batch.isEmpty()) { insertBatch(sql, batch); imported += batch.size(); }
-            }
-        } catch (Exception ex) {
-            jdbc.execute("DELETE FROM companies");
-            throw ex;
-        }
+        log.info("Starting RES import...");
+
+        long imported = importCsv(csvPath);
+
+        createIndexes();
+
+        jdbc.update(
+                "MERGE INTO app_metadata (metadata_key, metadata_value) "
+                        + "KEY(metadata_key) VALUES (?, ?)",
+                "res_import_complete",
+                "true"
+        );
+
         log.info("RES import finished. {} records loaded.", imported);
     }
 
+    private void createTables() {
+
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS companies (
+                    ico VARCHAR(8) PRIMARY KEY,
+                    name VARCHAR(1000),
+                    municipality VARCHAR(300),
+                    address VARCHAR(1000),
+                    legal_form VARCHAR(30),
+                    established VARCHAR(20),
+                    terminated VARCHAR(20),
+                    employee_category VARCHAR(30),
+                    nace VARCHAR(30),
+                    data_valid_as_of VARCHAR(20)
+                )
+                """);
+
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS app_metadata (
+                    metadata_key VARCHAR(100) PRIMARY KEY,
+                    metadata_value VARCHAR(500)
+                )
+                """);
+    }
+
+    private void createIndexes() {
+
+        jdbc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_name "
+                        + "ON companies(name, ico)"
+        );
+
+        jdbc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_municipality "
+                        + "ON companies(municipality, name)"
+        );
+    }
+
+    private long importCsv(Path csvPath) throws Exception {
+
+        long imported = 0;
+
+        String sql = """
+                INSERT INTO companies (
+                    ico, name, municipality, address, legal_form,
+                    established, terminated, employee_category,
+                    nace, data_valid_as_of
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
+
+        try (
+                Reader reader = new BufferedReader(
+                        new InputStreamReader(
+                                Files.newInputStream(csvPath),
+                                StandardCharsets.UTF_8
+                        )
+                );
+
+                CSVParser parser = CSVFormat.DEFAULT.builder()
+                        .setHeader()
+                        .setSkipHeaderRecord(true)
+                        .get()
+                        .parse(reader)
+        ) {
+
+            List<Object[]> batch = new ArrayList<>(BATCH_SIZE);
+
+            for (CSVRecord record : parser) {
+
+                batch.add(new Object[]{
+                        val(record, "ICO"),
+                        val(record, "FIRMA"),
+                        val(record, "OBEC_TEXT"),
+                        buildAddress(record),
+                        first(
+                                val(record, "ROSFORMA"),
+                                val(record, "FORMA")
+                        ),
+                        val(record, "DDATVZN"),
+                        val(record, "DDATZAN"),
+                        val(record, "KATPO"),
+                        first(
+                                val(record, "NACE2025"),
+                                val(record, "NACE")
+                        ),
+                        val(record, "DATPLAT")
+                });
+
+                if (batch.size() >= BATCH_SIZE) {
+                    insertBatch(sql, batch);
+                    imported += batch.size();
+                    batch.clear();
+
+                    if (imported % 100000 == 0) {
+                        log.info("Imported {} records...", imported);
+                    }
+                }
+            }
+
+            if (!batch.isEmpty()) {
+                insertBatch(sql, batch);
+                imported += batch.size();
+            }
+
+        } catch (Exception ex) {
+            jdbc.update("DELETE FROM companies");
+            throw ex;
+        }
+
+        return imported;
+    }
+
     private void insertBatch(String sql, List<Object[]> batch) {
-        jdbc.batchUpdate(sql, batch, batch.size(), (PreparedStatement ps, Object[] row) -> {
-            for (int i = 0; i < row.length; i++) ps.setString(i + 1, (String) row[i]);
-        });
+
+        jdbc.batchUpdate(
+                sql,
+                batch,
+                batch.size(),
+                (PreparedStatement ps, Object[] row) -> {
+                    for (int i = 0; i < row.length; i++) {
+                        ps.setString(i + 1, (String) row[i]);
+                    }
+                }
+        );
     }
 
     private String val(CSVRecord row, String key) {
-        if (!row.isMapped(key)) return null;
+
+        if (!row.isMapped(key)) {
+            return null;
+        }
+
         String value = row.get(key);
-        return value == null || value.isBlank() ? null : value.trim();
+
+        return value == null || value.isBlank()
+                ? null
+                : value.trim();
     }
 
-    private String first(String a, String b) { return a != null ? a : b; }
+    private String first(String a, String b) {
+        return a != null ? a : b;
+    }
 
     private String buildAddress(CSVRecord r) {
-        String fromParts = join(val(r, "ULICE_TEXT"), val(r, "CDOM"), val(r, "COR"),
-                val(r, "PSC"), val(r, "OBEC_TEXT"));
-        return fromParts.isBlank() ? val(r, "TEXTADR") : fromParts;
+
+        String fromParts = join(
+                val(r, "ULICE_TEXT"),
+                val(r, "CDOM"),
+                val(r, "COR"),
+                val(r, "PSC"),
+                val(r, "OBEC_TEXT")
+        );
+
+        return fromParts.isBlank()
+                ? val(r, "TEXTADR")
+                : fromParts;
     }
 
     private String join(String... parts) {
-        return java.util.Arrays.stream(parts).filter(s -> s != null && !s.isBlank())
+        return java.util.Arrays.stream(parts)
+                .filter(s -> s != null && !s.isBlank())
                 .collect(java.util.stream.Collectors.joining(" "));
     }
 }
