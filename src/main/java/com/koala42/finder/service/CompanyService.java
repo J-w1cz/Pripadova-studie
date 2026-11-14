@@ -21,10 +21,6 @@ public class CompanyService {
         this.ares = ares;
     }
 
-    /**
-     * Seznam subjektů z ČSÚ RES.
-     * Filtruje podle obce a aktivního statusu.
-     */
     public Map<String, Object> list(
             String location,
             boolean activeOnly,
@@ -39,7 +35,7 @@ public class CompanyService {
                         : location.trim();
 
         List<CompanyDto> results =
-                res.find(normalizedLocation, activeOnly, page, size + 1);
+                res.find(normalizedLocation, activeOnly, page, size);
 
         boolean hasNext = results.size() > size;
 
@@ -52,24 +48,97 @@ public class CompanyService {
         response.put("page", page);
         response.put("size", size);
         response.put("hasNext", hasNext);
-        response.put("location", normalizedLocation == null ? "" : normalizedLocation);
+        response.put("location",
+                normalizedLocation == null ? "" : normalizedLocation);
         response.put("activeOnly", activeOnly);
 
         return response;
     }
 
-    /**
-     * Detail subjektu z lokální databáze ČSÚ.
-     */
+    public Map<String, Object> search(
+            String type,
+            String query,
+            boolean activeOnly,
+            int page,
+            int size
+    ) {
+        validatePagination(page, size);
+
+        if (type == null || type.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Typ vyhledávání musí být zadán."
+            );
+        }
+
+        String normalizedType = type.trim().toLowerCase();
+        String normalizedQuery =
+                query == null ? "" : query.trim();
+
+        List<CompanyDto> results;
+
+        switch (normalizedType) {
+            case "name":
+                if (normalizedQuery.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "Zadejte název společnosti."
+                    );
+                }
+
+                results = ares.search(
+                        normalizedQuery, page, size, false
+                );
+                break;
+
+            case "ico":
+                validateIco(normalizedQuery);
+
+                results = ares.search(
+                        normalizedQuery, page, size, true
+                );
+                break;
+
+            case "municipality":
+                results = res.find(
+                        normalizedQuery.isBlank() ? null : normalizedQuery,
+                        activeOnly,
+                        page,
+                        size
+                );
+                break;
+
+            default:
+                throw new IllegalArgumentException(
+                        "Neznámý typ vyhledávání: " + normalizedType
+                );
+        }
+
+        boolean hasNext = results.size() > size;
+
+        List<CompanyDto> items = hasNext
+                ? results.subList(0, size)
+                : results;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("items", items);
+        response.put("page", page);
+        response.put("size", size);
+        response.put("hasNext", hasNext);
+        response.put("query", normalizedQuery);
+        response.put("type", normalizedType);
+
+        return response;
+    }
+
     public CompanyDto detail(String ico) {
         validateIco(ico);
         return res.findByIco(ico);
     }
 
-    /**
-     * Vyhledávání přes ARES.
-     */
-    public Map<String, Object> aresSearch(String query, int page, int size) {
+    public Map<String, Object> aresSearch(
+            String query,
+            int page,
+            int size
+    ) {
         if (query == null || query.isBlank()) {
             throw new IllegalArgumentException(
                     "Vyhledávací dotaz nesmí být prázdný."
@@ -79,7 +148,7 @@ public class CompanyService {
         validatePagination(page, size);
 
         List<CompanyDto> results =
-                ares.search(query.trim(), page, size + 1);
+                ares.search(query.trim(), page, size);
 
         boolean hasNext = results.size() > size;
 

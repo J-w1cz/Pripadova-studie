@@ -30,80 +30,99 @@ public class AresApiProvider {
      * Vyhledávání v ARES s podporou stránkování.
      */
     
-    public List<CompanyDto> search(String query, int page, int size) {
+    
+public List<CompanyDto> search(
+        String query,
+        int page,
+        int size
+) {
+    boolean byIco = query != null && query.matches("\\d{8}");
+    return search(query, page, size, byIco);
+}
 
-        if (query == null || query.isBlank()) {
-            return List.of();
-        }
-
-        if (page < 0 || size < 1 || size > 100) {
-            throw new IllegalArgumentException("Neplatné stránkování.");
-        }
-
-        String normalizedQuery = query.trim();
-
-        Map<String, Object> request;
-
-        if (normalizedQuery.matches("\\d{8}")) {
-            request = Map.of(
-                    "ico", List.of(normalizedQuery),
-                    "start", page * size,
-                    "pocet", size
-            );
-        } else {
-            request = Map.of(
-                    "obchodniJmeno", normalizedQuery,
-                    "start", page * size,
-                    "pocet", size
-            );
-        }
-
-        try {
-            JsonNode response = client.post()
-                    .uri("/ekonomicke-subjekty/vyhledat")
-                    .body(request)
-                    .retrieve()
-                    .body(JsonNode.class);
-
-            List<CompanyDto> result = new ArrayList<>();
-
-            if (response == null) {
-                return result;
-            }
-
-            JsonNode subjects = response.path("ekonomickeSubjekty");
-
-            if (!subjects.isArray()) {
-                subjects = response.path("seznamEkonomickychSubjektu");
-            }
-
-            if (!subjects.isArray()) {
-                return result;
-            }
-
-            for (JsonNode subject : subjects) {
-                CompanyDto company = map(subject);
-
-                if (company != null) {
-                    result.add(company);
-                }
-            }
-
-            return result;
-
-        } catch (RestClientResponseException e) {
-            throw new RuntimeException(
-                    "ARES HTTP " + e.getStatusCode()
-                            + ": " + e.getResponseBodyAsString(),
-                    e
-            );
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "Chyba při komunikaci s ARES: " + e.getMessage(),
-                    e
-            );
-        }
+public List<CompanyDto> search(
+        String query,
+        int page,
+        int size,
+        boolean byIco
+) {
+    if (query == null || query.isBlank()) {
+        return List.of();
     }
+
+    if (page < 0 || size < 1 || size > 100) {
+        throw new IllegalArgumentException("Neplatné stránkování.");
+    }
+
+    String normalizedQuery = query.trim();
+
+    Map<String, Object> request;
+
+    if (byIco) {
+        if (!normalizedQuery.matches("\\d{8}")) {
+            throw new IllegalArgumentException("Neplatné IČO.");
+        }
+
+        request = Map.of(
+                "ico", List.of(normalizedQuery),
+                "start", page * size,
+                "pocet", size + 1
+        );
+    } else {
+        request = Map.of(
+                "obchodniJmeno", normalizedQuery,
+                "start", page * size,
+                "pocet", size + 1
+        );
+    }
+
+    try {
+        JsonNode response = client.post()
+                .uri("/ekonomicke-subjekty/vyhledat")
+                .body(request)
+                .retrieve()
+                .body(JsonNode.class);
+
+        List<CompanyDto> result = new ArrayList<>();
+
+        if (response == null) {
+            return result;
+        }
+
+        JsonNode subjects = response.path("ekonomickeSubjekty");
+
+        if (!subjects.isArray()) {
+            subjects = response.path("seznamEkonomickychSubjektu");
+        }
+
+        if (!subjects.isArray()) {
+            return result;
+        }
+
+        for (JsonNode subject : subjects) {
+            CompanyDto company = map(subject);
+
+            if (company != null) {
+                result.add(company);
+            }
+        }
+
+        return result;
+
+    } catch (RestClientResponseException e) {
+        throw new RuntimeException(
+                "ARES HTTP " + e.getStatusCode()
+                        + ": " + e.getResponseBodyAsString(),
+                e
+        );
+    } catch (Exception e) {
+        throw new RuntimeException(
+                "Chyba při komunikaci s ARES: " + e.getMessage(),
+                e
+        );
+    }
+}
+
 
 
     /**

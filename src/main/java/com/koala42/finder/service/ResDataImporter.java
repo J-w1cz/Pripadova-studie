@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Component
 public class ResDataImporter implements ApplicationRunner {
@@ -35,16 +36,17 @@ public class ResDataImporter implements ApplicationRunner {
 
     private final JdbcTemplate jdbc;
 
-    public ResDataImporter(
-        JdbcTemplate jdbc
-    ) {
-    this.jdbc = jdbc;
+    public ResDataImporter(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
     }
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
 
         createTables();
+        // Migrace existující databáze.
+        migrateDatabase();
+        
 
         Boolean completed = jdbc.queryForObject(
                 "SELECT COUNT(*) > 0 FROM app_metadata "
@@ -59,6 +61,7 @@ public class ResDataImporter implements ApplicationRunner {
             );
 
             log.info("RES data already loaded: {} records.", count);
+
             createIndexes();
 
             return;
@@ -115,10 +118,12 @@ public class ResDataImporter implements ApplicationRunner {
                     ico VARCHAR(8) PRIMARY KEY,
                     name VARCHAR(1000),
                     municipality VARCHAR(300),
+                    municipality_key VARCHAR(300),
                     address VARCHAR(1000),
                     legal_form VARCHAR(30),
                     established VARCHAR(20),
                     terminated VARCHAR(20),
+                    active BOOLEAN,
                     employee_category VARCHAR(30),
                     nace VARCHAR(30),
                     data_valid_as_of VARCHAR(20)
@@ -133,17 +138,91 @@ public class ResDataImporter implements ApplicationRunner {
                 """);
     }
 
+    
+private void migrateDatabase() {
+
+    Boolean migrated = jdbc.queryForObject(
+            """
+            SELECT COUNT(*) > 0
+            FROM app_metadata
+            WHERE metadata_key = 'companies_schema_version'
+              AND metadata_value = '2'
+            """,
+            Boolean.class
+    );
+
+    if (Boolean.TRUE.equals(migrated)) {
+        log.info("Database schema is already up to date.");
+        return;
+    }
+
+    log.info("Starting database migration to schema version 2...");
+
+    jdbc.execute("""
+            ALTER TABLE companies
+            ADD COLUMN IF NOT EXISTS municipality_key VARCHAR(300)
+            """);
+
+    jdbc.execute("""
+            ALTER TABLE companies
+            ADD COLUMN IF NOT EXISTS active BOOLEAN
+            """);
+
+    log.info("Updating active status...");
+
+    jdbc.update("""
+            UPDATE companies
+            SET active = CASE
+                    WHEN terminated IS NULL OR terminated = '' THEN TRUE
+                    ELSE FALSE
+                END
+            WHERE active IS NULL
+            """);
+
+    log.info("Updating municipality keys...");
+
+    jdbc.update("""
+            UPDATE companies
+            SET municipality_key = UPPER(municipality)
+            WHERE municipality_key IS NULL
+              AND municipality IS NOT NULL
+            """);
+
+    // Verzi uložíme až po úspěšném dokončení migrace.
+    jdbc.update("""
+            MERGE INTO app_metadata (metadata_key, metadata_value)
+            KEY(metadata_key) VALUES (?, ?)
+            """,
+            "companies_schema_version",
+            "2"
+        );
+
+        log.info("Database migration to schema version 2 finished.");
+        }
+
+
     private void createIndexes() {
 
+        // Odstranění starých indexů, které nahrazujeme.
         jdbc.execute(
-                "CREATE INDEX IF NOT EXISTS idx_companies_name "
-                        + "ON companies(name, ico)"
+                "DROP INDEX IF EXISTS idx_companies_name"
         );
 
         jdbc.execute(
-                "CREATE INDEX IF NOT EXISTS idx_companies_municipality "
-                        + "ON companies(municipality, name)"
+                "DROP INDEX IF EXISTS idx_companies_municipality"
         );
+
+        // Index pro načítání aktivních společností.
+        jdbc.execute("""
+                CREATE INDEX IF NOT EXISTS idx_companies_active_name
+                ON companies(active, name, ico)
+                """);
+
+        // Index pro vyhledávání podle obce.
+        jdbc.execute("""
+                CREATE INDEX IF NOT EXISTS idx_companies_municipality_active
+                ON companies(active, municipality_key, name, ico)
+                """);
     }
 
     private long importCsv(Path csvPath) throws Exception {
@@ -152,10 +231,10 @@ public class ResDataImporter implements ApplicationRunner {
 
         String sql = """
                 INSERT INTO companies (
-                    ico, name, municipality, address, legal_form,
-                    established, terminated, employee_category,
-                    nace, data_valid_as_of
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ico, name, municipality, municipality_key, address,
+                    legal_form, established, terminated, active,
+                    employee_category, nace, data_valid_as_of
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
 
         try (
@@ -177,17 +256,24 @@ public class ResDataImporter implements ApplicationRunner {
 
             for (CSVRecord record : parser) {
 
+                String municipality = val(record, "OBEC_TEXT");
+                String terminated = val(record, "DDATZAN");
+
                 batch.add(new Object[]{
                         val(record, "ICO"),
                         val(record, "FIRMA"),
-                        val(record, "OBEC_TEXT"),
+                        municipality,
+                        municipality == null
+                                ? null
+                                : municipality.toUpperCase(Locale.ROOT),
                         buildAddress(record),
                         first(
                                 val(record, "ROSFORMA"),
                                 val(record, "FORMA")
                         ),
                         val(record, "DDATVZN"),
-                        val(record, "DDATZAN"),
+                        terminated,
+                        terminated == null,
                         val(record, "KATPO"),
                         first(
                                 val(record, "NACE2025"),
@@ -227,8 +313,14 @@ public class ResDataImporter implements ApplicationRunner {
                 batch,
                 batch.size(),
                 (PreparedStatement ps, Object[] row) -> {
+
                     for (int i = 0; i < row.length; i++) {
-                        ps.setString(i + 1, (String) row[i]);
+
+                        if (row[i] instanceof Boolean) {
+                            ps.setBoolean(i + 1, (Boolean) row[i]);
+                        } else {
+                            ps.setString(i + 1, (String) row[i]);
+                        }
                     }
                 }
         );

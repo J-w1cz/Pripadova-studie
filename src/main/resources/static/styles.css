@@ -106,7 +106,8 @@ body {
 }
 
 .mode-field {
-  width: 280px;
+  width: 230px;
+  flex-shrink: 0;
 }
 
 .search-field label,

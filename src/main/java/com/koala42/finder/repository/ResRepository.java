@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Locale;
 
 @Repository
 public class ResRepository {
@@ -35,7 +37,7 @@ public class ResRepository {
 
     /**
      * Načte stránku subjektů.
-     * Volající předává size + 1, aby bylo možné zjistit hasNext.
+     * Načítá size + 1 záznamů pro zjištění hasNext.
      */
     public List<CompanyDto> find(
             String location,
@@ -43,24 +45,29 @@ public class ResRepository {
             int page,
             int size
     ) {
+
         StringBuilder sql = new StringBuilder(
                 "SELECT * FROM companies WHERE 1=1 "
         );
 
-        List<Object> parameters = new java.util.ArrayList<>();
+        List<Object> parameters = new ArrayList<>();
 
         if (activeOnly) {
-            sql.append("AND (terminated IS NULL OR terminated = '') ");
+            sql.append("AND active = TRUE ");
         }
 
         if (location != null && !location.isBlank()) {
-            sql.append("AND LOWER(municipality) LIKE LOWER(?) ");
-            parameters.add(location.trim() + "%");
+
+            sql.append("AND municipality_key LIKE ? ");
+
+            parameters.add(
+                    location.trim().toUpperCase(Locale.ROOT) + "%"
+            );
         }
 
         sql.append("ORDER BY name, ico LIMIT ? OFFSET ?");
 
-        parameters.add(size);
+        parameters.add(size + 1);
         parameters.add((long) page * size);
 
         return jdbc.query(
@@ -71,6 +78,7 @@ public class ResRepository {
     }
 
     public CompanyDto findByIco(String ico) {
+
         List<CompanyDto> found = jdbc.query(
                 "SELECT * FROM companies WHERE ico = ?",
                 MAPPER,
@@ -81,14 +89,14 @@ public class ResRepository {
     }
 
     public Map<String, Object> stats() {
+
         Long total = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM companies",
                 Long.class
         );
 
         Long active = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM companies "
-                        + "WHERE terminated IS NULL OR terminated = ''",
+                "SELECT COUNT(*) FROM companies WHERE active = TRUE",
                 Long.class
         );
 
