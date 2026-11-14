@@ -48,7 +48,6 @@ Poté otevřete <http://localhost:8080>. Při prvním startu aplikace stáhne CS
 - **Obrat:** aplikace nemá filtr podle obratu. Ve zvoleném snapshotu a implementovaném datovém modelu není obrat použit.
 - **Vlastníci, management, telefon a e-mail:** tyto osoby ani kontaktní údaje aplikace nezískává ani nezobrazuje. Vyžadovalo by to další vhodné zdroje, ověření jejich licenčních a provozních podmínek a propojení dat podle IČO.
 - **Detail v aplikaci:** API vrací základní údaje z RES, ale tabulka otevírá externí stránku Justice; úplná detailní obrazovka není implementována.
-- **Nasazení:** v tomto repozitáři není nakonfigurované ani doložené veřejné nasazení. Lokální H2 databáze a automatický import velkého CSV nejsou samy o sobě připravenou cloudovou konfigurací.
 
 ## Známá omezení a technický dluh
 
